@@ -571,17 +571,20 @@ void processCommand() {
         break;
       case CMD_BRIGHTNESS:
         DEBUGln("===CMD_BRIGHTNESS===");
+        if (fades[curFade] != rcvData[curIndex])
         showBrightness(rcvData[curIndex]);
         break;
       case CMD_SENSITIVITY:
         DEBUGln("===CMD_SENSITIVITY===");
+        if (curSensitivity != rcvData[curIndex]) {
         curSensitivity = rcvData[curIndex];
         showSensitivity();
+        }
         break;
       case CMD_SWITCHSIDES:
         DEBUGln(F("===CMD_SWITCHSIDES==="));
-        revers = !rcvData[curIndex];  //Trick: in case we lost one command
-        switchSides();
+        if (revers != rcvData[curIndex])
+          switchSides();
         break;
       case CMD_LONGPRESS:
         DEBUGln(F("===CMD_LONGPRESS==="));

@@ -37,8 +37,13 @@
 */
 //Поиск мест, где можно что-то менять - по ключевому слову: ПОДСТРОЙКА
 
-#include <PGMWrap.h>  //для удобного использования таблицы чувствительностей, загруженной во Флэш-память (PROGMEM =)
+//#define LOCAL_LEDS
+
+#ifdef LOCAL_LEDS
 #include <FastLED.h> //для ленты WS2812B
+#endif
+
+#include <PGMWrap.h>  //для удобного использования таблицы чувствительностей, загруженной во Флэш-память (PROGMEM =)
 #include <OneButton.h> //для кнопки
 #include <Wire.h> //для I2C
 #include <EEPROM.h> //для сохранения настроек прибора в памяти EEPROM между включениями
@@ -123,7 +128,7 @@ unsigned long workFrequency = 4345E5; //working Frequency: 434.5MHz
 #define CMD_GREETING         112 //параметр = whatever?
 #define CMD_EEPROM_WRITE     113 //параметр = whatever?
 
-
+#ifdef LOCAL_LEDS
 //Это «рабочий» массив для ленты
 CRGB leds [NUM_LEDS];
 
@@ -145,11 +150,13 @@ CRGB modes[NUM_MODES][NUM_LEDS] =
   {0,        0,        0,        0,        0,        0x467800, 0x00FF00,        0, 0, 0, 0, 0, 0},  //L1
   {0,        0,        0,        0,        0,        0x002020, 0x00FF00, 0x002020, 0, 0, 0, 0, 0},  //!LEVEL!
 };
+#endif
 
 //ПОДСТРОЙКА: здесь можно задавать яркости:
 #define NUM_FADES 4   //Количество вариантов яркости ленты
 uint8_t fades [NUM_FADES] = {255, 64, 32, 8}; //максимальное значение яркости (каждого цвета)
 
+#ifdef LOCAL_LEDS
 //Следующий паттерн («двойная радуга») загорится при длинном нажатии кнопки (обнуление).
 //При отпускании вся лента загорится синим и пойдёт процесс обнуления.
 CRGB modeLongPressStart [NUM_LEDS] =
@@ -165,6 +172,7 @@ CRGB modeLongPressStart [NUM_LEDS] =
 #define NUM_TEST_COLORS 3
 CRGB testColors [NUM_TEST_COLORS] =
 {  CRGB::Red, CRGB::Green, CRGB::Blue };
+#endif
 
 //Define Control Button.
 OneButton buttonControl(PIN_CONTROL_BUTTON, true);
@@ -181,10 +189,10 @@ float_p modeRange[NUM_SENSITIVITIES][NUM_MODES - 1] PROGMEM = //ПОДСТРОЙ
   //!Нужно задавать левую половину граничных значений углов для каждой чувствительности, а правые написать симметрично!
 {
   /*11   10   9    8    7     6     5     4     3     2     1    - соответствующие «моды» */
-  { 10, 5.0, 2.2, 1.6, 1.1,  0.8,  0.6,  0.4,  0.3,  0.2,  0.1,   -0.1, -0.2, -0.3, -0.4, -0.6, -0.8, -1.1, -1.6, -2.2, -5.0, -10,}, //во вторую половину записать симметрично
-  { 10, 5.0, 2.8, 2.1, 1.5,  1.1,  0.8,  0.5,  0.4,  0.3,  0.2,   -0.2, -0.3, -0.4, -0.5, -0.8, -1.1, -1.5, -2.1, -2.8, -5.0, -10,}, //во вторую половину записать симметрично
-  { 10, 5.0, 3.4, 2.6, 1.9,  1.4,  1.0,  0.6,  0.5,  0.4,  0.3,   -0.3, -0.4, -0.5, -0.6, -1.0, -1.4, -1.9, -2.6, -3.4, -5.0, -10,}, //во вторую половину записать симметрично
-  { 12, 6.0, 4.0, 3.1, 2.3,  1.7,  1.2,  0.7,  0.6,  0.5,  0.4,   -0.4, -0.5, -0.6, -0.7, -1.2, -1.7, -2.3, -3.1, -4.0, -6.0, -12,}, //во вторую половину записать симметрично
+  {   10, 5.0, 2.2, 1.6, 1.1,  0.8,  0.6,  0.4,  0.3,  0.2,  0.1,   -0.1, -0.2, -0.3, -0.4, -0.6, -0.8, -1.1, -1.6, -2.2, -5.0, -10,}, //во вторую половину записать симметрично
+  {   10, 5.0, 2.8, 2.1, 1.5,  1.1,  0.8,  0.5,  0.4,  0.3,  0.2,   -0.2, -0.3, -0.4, -0.5, -0.8, -1.1, -1.5, -2.1, -2.8, -5.0, -10,}, //во вторую половину записать симметрично
+  {   10, 5.0, 3.4, 2.6, 1.9,  1.4,  1.0,  0.6,  0.5,  0.4,  0.3,   -0.3, -0.4, -0.5, -0.6, -1.0, -1.4, -1.9, -2.6, -3.4, -5.0, -10,}, //во вторую половину записать симметрично
+  {   12, 6.0, 4.0, 3.1, 2.3,  1.7,  1.2,  0.7,  0.6,  0.5,  0.4,   -0.4, -0.5, -0.6, -0.7, -1.2, -1.7, -2.3, -3.1, -4.0, -6.0, -12,}, //во вторую половину записать симметрично
 };
 
 byte curSensitivity = 0;    //Текущее значение чувствительности, для начала 0
@@ -265,12 +273,20 @@ void setup() { //===========  SETUP =============
   initButtons();
   initFBled();
   initIMU();  //Инициализация модуля IMU
+  flashFBLed(1);
+#ifdef LOCAL_LEDS
   initMODS();
+#endif
   readEEPROM();
+  flashFBLed(1);
   initLoRa();
+  flashFBLed(1);
+  sendAllData();
+#ifdef LOCAL_LEDS
   initLEDs();
+#endif
   playGreeting();
-  flashFBLed(5);
+  flashFBLed(3);
 }
 
 void loop() {  //===========  LOOP =============
@@ -314,7 +330,9 @@ void clickControl() {
   curFade = (curFade + 1) % NUM_FADES;
   // set master brightness control
   sendLoRaMessage(CMD_BRIGHTNESS, fades[curFade]);
+#ifdef LOCAL_LEDS
   FastLED.setBrightness(fades[curFade]);
+#endif
   prevMode = -1;    //Делаем так, чтобы индикатор обновился, даже если не изменился угол
   prepareEEPROMWrite();
   DEBUG(F("Current Brightness Number: "));
@@ -327,10 +345,17 @@ void doubleclickControl() {
   PROCln(F("Control Button double-clicked"));
   curSensitivity = (curSensitivity + 1) % NUM_SENSITIVITIES;
   sendLoRaMessage(CMD_SENSITIVITY, curSensitivity);
+#ifdef LOCAL_LEDS
   showSensitivity();
+#else
+  flashFBLed(2);
+#endif
+  delay(1000);
+  prevMode = -1;
   prepareEEPROMWrite();
 }////doubleclickControl()
 
+#ifdef LOCAL_LEDS
 void showSensitivity() {
   PROCln(F("showSensitivity()"));
   for (byte i = 0; i < NUM_LEDS; i++) {
@@ -339,12 +364,10 @@ void showSensitivity() {
   leds[curSensitivity] = modeLongPressStart[curSensitivity];
   leds[NUM_LEDS - curSensitivity - 1] = modeLongPressStart[curSensitivity];
   FastLED.show();
-  delay(1000);
-  prevMode = -1;
   DEBUG(F("Sensitivity: "));
   DEBUGln(curSensitivity);
-
 }////showSensitivity()
+#endif
 
 void prepareEEPROMWrite() {
   PROCln(F("prepareEEPROMWrite()"));
@@ -357,11 +380,17 @@ void switchSides() {
   revers = !revers;
   DEBUGln(revers);
   sendLoRaMessage(CMD_SWITCHSIDES, revers);
+#ifdef LOCAL_LEDS
   showSwitchSides();
   copyMode();
+#else
+  flashFBLed(2);
+#endif
+  delay(1000);
   prevMode = -1;
 }////switchSides()
 
+#ifdef LOCAL_LEDS
 void showSwitchSides() {
   for (byte i = 0; i < NUM_LEDS / 2; i++) {
     leds[i] = CRGB::Blue;
@@ -374,10 +403,8 @@ void showSwitchSides() {
     leds[NUM_LEDS - i - 1] = CRGB::Blue;
   }
   FastLED.show();
-  delay(1000);
-
 }////showSwitchSides()
-
+#endif
 
 void longPressStartControl() {
   PROCln(F("Control Button long-press started"));
@@ -387,16 +414,22 @@ void longPressStartControl() {
 
   sendLoRaMessage(CMD_LONGPRESS, 1);
 
+#ifdef LOCAL_LEDS
   showLongPressStart();
+#else
+  flashFBLed(4);
+#endif
+  delay(500);
 }////longPressStartControl()
 
+#ifdef LOCAL_LEDS
 void showLongPressStart() {
   for (byte i = 0; i < NUM_LEDS; i++) {
     leds[i] = modeLongPressStart[i];
   }
   FastLED.show();
-  delay(500);
 }//showLongPressStart()
+#endif
 
 void longPressControl() {
   PROCln(F("Long Press Control Button ..."));
@@ -416,20 +449,26 @@ void longPressStopControl() {
     DEBUGln(F("Starting Calibration!"));
     startCalibrationMode = false;  //just in case, seems not necessary, but...
     sendLoRaMessage(CMD_CALIBRATION, 1);
+#ifdef LOCAL_LEDS
     showCalibration();
+#else
+    flashFBLed(2);
+#endif
+    delay(500);
     prevMode = -1;
     prepareEEPROMWrite();
     setZERO();
   }
 }////longPressStopControl()
 
+#ifdef LOCAL_LEDS
 void showCalibration() {
   for (byte i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Blue;  //set Blue lights to indicate calibration
   }
   FastLED.show();
-  delay(500);
 }////showCalibration()
+#endif
 
 void setZERO() { //calculate the average roll - i.e. "calibration"
   PROCln(F("setZERO()"));
@@ -475,6 +514,7 @@ void initIMU() {
   if (myIMU.begin() == false)
   {
     DEBUGln(F("BNO080 not detected at default I2C address. Check your connections. Freezing..."));
+    flashFBLed(7);
     while (1) ;
   }
   DEBUGln(F("enableGameRotationVector:"));
@@ -488,6 +528,7 @@ void initIMU() {
 }////initIMU()
 
 
+#ifdef LOCAL_LEDS
 void initMODS() { //Симетрично инициализируем значения массивов ледов для отклонения вправо
   PROCln(F("initMODS()"));
 
@@ -501,7 +542,7 @@ void initMODS() { //Симетрично инициализируем значе
     }
   }
   //Контроль правильности присвоения всем модам и всем яркостям:
-#ifdef DEBUG_ENABLE
+  //#ifdef DEBUG_ENABLE
   Serial.println(F("Modes:")); //заголовок
   for (byte i = 0; i < NUM_MODES; i++) {
     for (byte j = 0; j < NUM_LEDS; j++) {
@@ -514,26 +555,29 @@ void initMODS() { //Симетрично инициализируем значе
     Serial.println();   //перевод строки - разделитель мод
   }
   Serial.println(F("------------------"));   //конец вывода мод
+  //#endif
+}////initMODS()
 #endif
 
-}////initMODS()
-
+#ifdef LOCAL_LEDS
 void copyMode() {
   byte k;
   for (byte i = 0; i < NUM_LEDS; i++) {
     k = revers ? (NUM_LEDS - 1 - i) : i;
     leds[i] = modes[curMode][k] ;
   }
-
 }////copyMode()
+#endif
 
 void processLEDS()  {
   PROCln(F("processLEDS()"));
   if (curMode != prevMode) //
   {
     sendLoRaMessage(CMD_MODE, curMode);
+#ifdef LOCAL_LEDS
     copyMode();
     FastLED.show();
+#endif
   }
   prevMode = curMode;
   PROCln(F("/processLEDS()"));
@@ -582,6 +626,7 @@ byte getMode() {
   return (NUM_MODES - 1);               //значит, очень много!
 }////getMode()
 
+#ifdef LOCAL_LEDS
 void  initLEDs()  { //Инициализация индикаторной ленты
   PROCln(F("initLEDs()"));
   pinMode(PIN_LEDS, OUTPUT);
@@ -590,10 +635,12 @@ void  initLEDs()  { //Инициализация индикаторной лен
   FastLED.setBrightness(fades[curFade]);
   delay(100);
 }////initLEDs()
+#endif
 
 void playGreeting() {
   PROCln(F("«««««playGreeting()»»»»»"));
   sendLoRaMessage(CMD_GREETING, 0);
+#ifdef LOCAL_LEDS
   for (byte j = 0; j < 3; j++) {
     for (byte i = 0; i < NUM_LEDS; i++) {
       leds[i] = testColors[j];
@@ -601,9 +648,10 @@ void playGreeting() {
       FastLED.show();
       delay(40);   //ПОДСТРОЙКА
     }
-    prevMode = -1;    //Делаем искусственно так, чтобы индикатор обновился
-    delay(100);
   }
+#endif
+  prevMode = -1;    //Делаем искусственно так, чтобы индикатор обновился
+  delay(400);
 }////playGreeting();
 
 void readEEPROM() {
@@ -710,15 +758,23 @@ void processEEPROM() {    //Проверяем (в loop) надо ли писа�
 #endif
       EEPROM.put(lastEEPROMAddress, writeEEPROMData);   //Actual update of EEPROM
       readEEPROM(); //read the written values back for control
+      sendLoRaMessage(CMD_EEPROM_WRITE, 0);
+      sendAllData();
+#ifdef LOCAL_LEDS
       showEEPROMwrite();
+#else
+      flashFBLed(3);
+#endif
+      delay(200);
+      prevMode = -1;    //Делаем так, чтобы индикатор обновился, даже если не изменился угол
     }
   }
   PROCln(F("/processEEPROM()"));
 }////processEEPROM()
 
+#ifdef LOCAL_LEDS
 void showEEPROMwrite() { //Индикация того, что в ЕЕПРОМ прошла запись
   PROCln(F("***showEEPROMwrite()***"));
-  sendLoRaMessage(CMD_EEPROM_WRITE, 0);
   byte centerLED = NUM_LEDS / 2;
   for (byte i = 0; i < NUM_LEDS; i++) { //Все ЛЕДы делаем тёмными...
     leds[i] = CRGB::Black;
@@ -729,10 +785,18 @@ void showEEPROMwrite() { //Индикация того, что в ЕЕПРОМ �
     delay(200);
     leds[centerLED] = CRGB::Black;  //...то тёмный
     FastLED.show();
-    delay(200);
   }
-  prevMode = -1;    //Делаем так, чтобы индикатор обновился, даже если не изменился угол
 }////showEEPROMwrite()
+#endif
+
+void sendAllData() {
+  sendLoRaMessage(CMD_BRIGHTNESS, fades[curFade]);
+  delay(100);
+  sendLoRaMessage(CMD_SENSITIVITY, curSensitivity);
+  delay(100);
+  sendLoRaMessage(CMD_SWITCHSIDES, revers);
+  delay(100);
+}////sendAllData()
 
 void initLoRa()  {
   // override the library default CS, reset, and IRQ pins
@@ -741,7 +805,7 @@ void initLoRa()  {
   if (!LoRa.begin(workFrequency)) {             // initialize radio at workFrequency
     DEBUGln(F("LoRa init failed. Check your connections."));
     while (true) {
-      flashFBLed(3);    // if failed, flash 3 times indefinitely
+      flashFBLed(5);    // if failed, flash 5 times X indefinitely
       delay(500);
     }
   }
