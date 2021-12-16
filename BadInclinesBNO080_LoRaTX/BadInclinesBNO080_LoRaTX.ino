@@ -759,10 +759,10 @@ void processEEPROM() {    //Проверяем (в loop) надо ли писа�
       EEPROM.put(lastEEPROMAddress, writeEEPROMData);   //Actual update of EEPROM
       readEEPROM(); //read the written values back for control
       sendLoRaMessage(CMD_EEPROM_WRITE, 0);
-      sendAllData();
 #ifdef LOCAL_LEDS
       showEEPROMwrite();
 #else
+  //    sendAllData();
       flashFBLed(3);
 #endif
       delay(200);
