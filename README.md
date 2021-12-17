@@ -10,3 +10,6 @@ BadIncLoraTX.fzz - Фритцин проект передатчика
 BadIncLoraRX_bb.png - картинка соединений приёмника
 BadIncLoraTX_bb.png - картинка соединений передатчика
 README.md - этот файл
+Arduino-Files-Preferences-Additional....jpg - URL для добавления Адафрутовских контроллеров (потом перегрузить Ардуино)
+Board selection for BSFrance.jpg - какой микроконтроллер выбирать при прошивке
+
