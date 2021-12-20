@@ -1,9 +1,13 @@
-/* Log:
+/* Version 1.1
+ *  Log:
 
   16.11.2021  Запустить на BSFrance (не используя пока Лору) - DONE
   21.11.2021 Скопировать в LoRaRX - DONE
-  15.12.2921 очищено от лишнего кода (кроме кнопки) и загрузить в приёмник
-
+  15.12.2021 очищено от лишнего кода (кроме кнопки) и загрузить в приёмник - DONE
+  15.12.2021 Обработка полученного ЛоРа сигнала - DONE
+  21.12.2021 Вернуть код ЕПРОМа для записи яркости и реверса
+  21.12.2021 Делается запись в местный ЕЕПРОМ между 1 и 2 морганием светодиода записи 
+  
   ===============
   Цель проекта: инерционно-независимый уровень.
   Соединяем IMU BNO080 и светодиодную ленту WS2812B в одном приборе!
@@ -28,9 +32,9 @@
 */
 //Поиск мест, где можно что-то менять - по ключевому слову: ПОДСТРОЙКА
 
-#include <PGMWrap.h>  //для удобного использования таблицы чувствительностей, загруженной во Флэш-память (PROGMEM =)
 #include <FastLED.h> //для ленты WS2812B
 #include <OneButton.h> //для кнопки
+#include <EEPROM.h> //для сохранения настроек прибора в памяти EEPROM между включениями
 #include <SPI.h>              // include LoRa required 2 libraries
 #include <LoRa.h>
 
@@ -59,16 +63,6 @@
 #define PROCln(x)
 #endif
 
-/*
-  //= MILLIS TIMER MACRO =
-  // performs the {subsequent} code once and then again after each x ms
-  #define EVERY_MS(x) \
-  static uint32_t tmr;\
-  bool flg = millis() - tmr >= (x);\
-  if (flg) tmr = millis();\
-  if (flg)
-*/
-
 //Настройки для ленты:
 #define PIN_LEDS 6    //К какому дигитальному пину подключено управление ЛЕДами
 #define NUM_LEDS 13   //количество ЛЕДов в ленте
@@ -89,7 +83,7 @@ byte workAddress = 111;  // address of connection
 unsigned long workFrequency = 4345E5; //working Frequency: 434.5MHz
 
 //Команды для связи:
-#define CMD_BRIGHTNESS       100 //параметр = реальная яркость 
+#define CMD_BRIGHTNESS       100 //параметр = номер яркости в списке fades
 #define CMD_SENSITIVITY      101 //параметр = curSensitivity 
 #define CMD_SWITCHSIDES      102 //параметр = revers 
 #define CMD_LONGPRESS        103 //параметр = 1
@@ -150,24 +144,18 @@ OneButton buttonControl(PIN_CONTROL_BUTTON, true);
 byte curFade; //Текущее значение яркости
 byte curMode;   //Новое значение режима (зависит от угла наклона)
 byte prevMode = -1; //Предыдущее значение режима
-float Roll;   //Крен, который и надо показать светодиодами
-float deltaZero; //Поправка на неровность установки
+//float Roll;   //Крен, который и надо показать светодиодами
+//float deltaZero; //Поправка на неровность установки
 boolean revers;   //Переключалка для сторон уровня
+
 #define MAX_INDEX 8
 byte rcvCmd[MAX_INDEX];      //Полученная команда
 byte rcvData[MAX_INDEX];     //Полученный параметр комады
-byte rcvIndex, curIndex;    //Позиция получаемой и выполняемой команды
-boolean StandBy;            //Индикатор, что мы в режиме стэндбай
+byte rcvIndex, curIndex;    //Позиция получаемой и выполняемой команды в кольцевом стеке
+boolean StandBy;            //Индикатор того, что приёмник в режиме стэндбай
 
 #define NUM_SENSITIVITIES 4                         //ПОДСТРОЙКА количества вариантов чувствительности
-float_p modeRange[NUM_SENSITIVITIES][NUM_MODES - 1] PROGMEM = //ПОДСТРОЙКА границ диапазонов крена - в градусах - «0» не включать!
-  //!Нужно задать левую половину граничных значений углов для каждой чувствительности, а правые написать симметрично!
-{
-  { 10, 5.0, 2.2, 1.6, 1.1,  0.8,  0.6,  0.4,  0.3,  0.2,  0.1,   -0.1, -0.2, -0.3, -0.4, -0.6, -0.8, -1.1, -1.6, -2.2, -5.0, -10,}, //во вторую половину записать симметрично
-  { 10, 5.0, 2.8, 2.1, 1.5,  1.1,  0.8,  0.5,  0.4,  0.3,  0.2,   -0.2, -0.3, -0.4, -0.5, -0.8, -1.1, -1.5, -2.1, -2.8, -5.0, -10,}, //во вторую половину записать симметрично
-  { 10, 5.0, 3.4, 2.6, 1.9,  1.4,  1.0,  0.6,  0.5,  0.4,  0.3,   -0.3, -0.4, -0.5, -0.6, -1.0, -1.4, -1.9, -2.6, -3.4, -5.0, -10,}, //во вторую половину записать симметрично
-  { 12, 6.0, 4.0, 3.1, 2.3,  1.7,  1.2,  0.7,  0.6,  0.5,  0.4,   -0.4, -0.5, -0.6, -0.7, -1.2, -1.7, -2.3, -3.1, -4.0, -6.0, -12,}, //во вторую половину записать симметрично
-};
+
 byte curSensitivity = 0;    //Текущее значение чувствительности, для начала 0
 
 #define VERY_LONG_PRESS_MS  3000  //это ПОДСТРОЙКА: длительность очень длинного нажатия (мс), при котором
@@ -176,12 +164,38 @@ byte curSensitivity = 0;    //Текущее значение чувствите
 boolean startCalibrationMode = false;
 uint32_t verylongPressTimer = 0;
 
-/*
-  //Моргание встроенным светодиодом - переключение каждые N циклов.
-  #define BLINK_EVERY_N 50
-  int blinkAlive;
-  bool  blinkLED;
-*/
+//EEPROM things
+#define WRITE_EEPROM_DELAY_MS   15000   //ПОДСТРОЙКА: задержка между последним изменением параметров и 
+//сохранением их в ЕЕПРОМ. (Если за это время произвести новое изменение параметров, то сохранение отложится ещё на такое же время. )
+#define EEPROM_OLD_CODE 254  // - специальный код для распознавания нужного места для чтения/записи ЕЕПРОМ
+
+struct RX_EEPROMData { //Структура для чтения и записи данных EEPROM  - 4 байта
+  byte code;  // = 254
+  byte state; // = по битам: 0|FFF|SSS|R = Fade|Sensitivity|Reverse (это никогда не равно 254, то есть не может быть спутано с кодом при чтении)
+  //  int deltaLSD;  // = deltaZero * 16 - Это по спеку датчика BNO080 должно быть целое число в единицах LSD
+  //  //Для экономии места EEPROM, угол поправки записывается в виде целого числа = угол * 16 (округлённо)
+  // (Для приёмника не требуется запоминать дельту датчика!)
+};
+
+RX_EEPROMData readRX_EEPROMData;
+RX_EEPROMData writeRX_EEPROMData;
+boolean    writeEEPROM = false;
+uint32_t    writeEEPROMtimer = 0;
+
+//ПОДСТРОЙКА: Setting defaults for EEPROM values:
+#define EEPROM_WRITE_BLINK_DELAY 200  //milliseconds
+byte defaultFade = 0;
+byte defaultSensitivity = 0;
+boolean defaultrevers = false;
+
+//Переменные для хранения последних прочитанных данных
+int lastEEPROMAddress = 0;
+byte readFade;
+byte readSensitivity;
+boolean readrevers;
+int writesEEPROM = 0;   //Number of EEPROM writes in this session
+int static maxWrites = 10;  //After this number of writes in one session, we shift the EEPROM address by 1 to prevent wear (?)
+unsigned long nextEEPROMwriteblink;
 
 //****************************************************************************************************
 void setup() { //===========  SETUP =============
@@ -192,10 +206,11 @@ void setup() { //===========  SETUP =============
   while (!Serial);
 #endif
 
-  DEBUGln(F("Bad Inclines BNO080 LoRa RX ==== Setup ===="));
+  DEBUGln(F("Bad Inclines LoRa RX ==== Setup ===="));
 
   initButtons();  //времено оставлено для отладки
   initMODS();
+  readEEPROM();
   initLEDs();
   initLoRa();
   playGreeting();
@@ -231,15 +246,16 @@ void clickControl() {
   DEBUGln(F("Fade Function"));
   curFade = (curFade + 1) % NUM_FADES;
   // set master brightness control
-  showBrightness(fades[curFade]);
+  showBrightness();
+
   DEBUG(F("Current Brightness Number: "));
   DEBUG(curFade);
   DEBUG(F(",\tCurrent Brightness: "));
   DEBUGln(fades[curFade]);
 }////clickControl()
 
-void showBrightness(byte brightness) {
-  FastLED.setBrightness(brightness);
+void showBrightness() {
+  FastLED.setBrightness(fades[curFade]);
   prevMode = -1;    //Делаем искусственно так, чтобы индикатор обновился, даже если не изменился угол
 }////showBrightness();
 
@@ -367,22 +383,6 @@ void initMODS() { //Симетрично инициализируем значе
 
 }////initMODS()
 
-/*
-  void initModeRanges()  { //Симметрично заполняем правую половину массива границ диапазонов чувствительностей по заданной левой
-  PROCln(F("initModeRanges()>>>>>"));
-  for (byte s = 0; s < NUM_SENSITIVITIES; s++) {
-    DEBUG(F("Sensitivity: "));
-    DEBUGln(s);
-    for (byte i = 0; i < NUM_MODES - 1 ; i++) {
-      modeRange[s][NUM_MODES - 2 - i] = 0 - modeRange[s][i];
-      DEBUG(modeRange[s][i]);
-      DEBUG(F(",\t"));
-    }
-    DEBUGln();
-  }
-  }////initModeRanges()
-*/
-
 void copyMode() {
   byte k;
   for (byte i = 0; i < NUM_LEDS; i++) {
@@ -428,23 +428,132 @@ void playGreeting() {
   }
 }////playGreeting();
 
+void readEEPROM() {
+  DEBUGln(F("Reading from EEPROM"));
+  lastEEPROMAddress = 0;
+  byte value;
+  //Находим по коду положение предыдущей, последней записи в ЕЕПРОМ
+  //(Это там, где обрываются записи 254,254,254...)
+  for (int i = 0; i < (EEPROM.length() - sizeof(RX_EEPROMData)); i++) {
+    value = EEPROM.read(i);
+    delay(100);
+    if (value != EEPROM_OLD_CODE ) {
+      lastEEPROMAddress = i;
+      break;
+    }
+  }
+  //Если здесь будет lastEEPROMAddress == 0, то в ЕЕПРОМе не найдена запись предыдущих параметров
+  if (lastEEPROMAddress == 0) {
+    DEBUGln(F("Setting defaults!!!"));
+    curFade = defaultFade;
+    curSensitivity = defaultSensitivity;
+    revers = defaultrevers;
+    readFade = defaultFade;
+    readSensitivity = defaultSensitivity;
+    readrevers = defaultrevers;
 
-void showEEPROMwrite() { //Индикация того, что в ЕЕПРОМ прошла запись
-  PROCln(F("***showEEPROMwrite()***"));
-  byte centerLED = NUM_LEDS / 2;
+    return;   //exit from function
+  };
+  //Here the address is > 0!
+  lastEEPROMAddress = lastEEPROMAddress - 1;
+  DEBUG(F("EEPROM Data found at position: "));
+  DEBUGln(lastEEPROMAddress);
+
+  EEPROM.get(lastEEPROMAddress, readRX_EEPROMData);
+  delay(100);
+  uncodeRX_EEPROMData();
+
+  curFade = readFade;
+  curSensitivity = readSensitivity;
+  revers = readrevers;
+
+#ifdef DEBUG_ENABLE
+  printRX_EEPROMData();
+#endif
+}////readEEPROM()
+
+void   codeRX_EEPROMData() { //Кодирует записываемые данные во writeRX_EEPROMData
+  writeRX_EEPROMData.code = EEPROM_OLD_CODE;
+  writeRX_EEPROMData.state = byte(revers) | curSensitivity << 1 | curFade << 4;
+}/////codeRX_EEPROMData()
+
+void uncodeRX_EEPROMData() {   //ДЕ-кодирует записываемые данные из readRX_EEPROMData
+  readFade = (readRX_EEPROMData.state & B01110000) >> 4;
+  readrevers = (readRX_EEPROMData.state & B00000001);
+  readSensitivity = (readRX_EEPROMData.state & B00001110) >> 1;
+}////uncodeRX_EEPROMData()
+
+#ifdef DEBUG_ENABLE
+void printRX_EEPROMData() {
+  Serial.println("----------");
+  Serial.print(F("Fade:\t"));
+  Serial.println(  curFade);
+  Serial.print(F("revers:\t"));
+  Serial.println(  revers);
+  Serial.print(F("Sensitivity:\t"));
+  Serial.println(  curSensitivity);
+  Serial.println("----------");
+}////printRX_EEPROMData()
+#endif
+
+void processEEPROMwrite() {    //пишем в ЕЕПРОМ, когда приходит команда с  передатчика
+  PROCln(F("processEEPROMwrite()"));
+  startShowEEPROMwrite(); //начинаем показывать запись
+  codeRX_EEPROMData();
+  writesEEPROM = writesEEPROM + 1;
+  DEBUG(F("Number of writes in this session: "));
+  DEBUGln(writesEEPROM);
+  if ((writesEEPROM % maxWrites) == 0) {
+    DEBUGln(F("Shifting to the NEXT address!"));
+    lastEEPROMAddress = (lastEEPROMAddress + 1) % (EEPROM.length() - sizeof(RX_EEPROMData) );
+  }
+#ifdef DEBUG_ENABLE
+  DEBUGln(F("Before Writing to EEPROM at position:"));
+  DEBUGln(lastEEPROMAddress);
+  printRX_EEPROMData();
+#endif
+  // Производим запись:
+  EEPROM.put(lastEEPROMAddress, writeRX_EEPROMData);   //Actual update of EEPROM
+#ifdef DEBUG_ENABLE
+  readEEPROM(); //read the written values back for control
+  DEBUGln(F("Reading After Writing to EEPROM at position:"));
+  DEBUGln(lastEEPROMAddress);
+  printRX_EEPROMData();
+#endif
+  finishShowRXEEPROMwrite();
+  prevMode = -1;    //Делаем так, чтобы индикатор обновился и картинка не зависла
+  PROCln(F("/processEEPROM()"));
+}////processEEPROMwrite()
+
+void startShowEEPROMwrite() { //Включаем картинку, показывающую запись в ЕЕПРОМ
+  PROCln(F("***startShowEEPROMwrite()***"));
   for (byte i = 0; i < NUM_LEDS; i++) { //Все ЛЕДы делаем тёмными...
     leds[i] = CRGB::Black;
   }
-  for (byte j = 0; j < 3; j++) {
-    leds[centerLED] = CRGB::Red;  //...а центральный - то красный,
+  leds[NUM_LEDS / 2] = CRGB::Red;  //...а центральный - красным,
+  FastLED.show();
+  nextEEPROMwriteblink = millis() + EEPROM_WRITE_BLINK_DELAY;
+}////startShowEEPROMwrite()
+
+void finishShowRXEEPROMwrite() { //Индикация того, что в RX ЕЕПРОМ прошла запись
+  PROCln(F("***finishShowRXEEPROMwrite()***"));
+  while (millis() < nextEEPROMwriteblink) {
+    delay(5);
+  } //wait ;
+  leds[NUM_LEDS / 2] = CRGB::Black;  // потушить
+  FastLED.show();
+  delay(EEPROM_WRITE_BLINK_DELAY);
+
+  for (byte j = 0; j < 2; j++) {
+    leds[NUM_LEDS / 2] = CRGB::Red;  // зажечь
     FastLED.show();
-    delay(200);
-    leds[centerLED] = CRGB::Black;  //...то тёмный
+    delay(EEPROM_WRITE_BLINK_DELAY);
+    leds[NUM_LEDS / 2] = CRGB::Black;  // потушить
     FastLED.show();
-    delay(200);
+    delay(EEPROM_WRITE_BLINK_DELAY);
   }
   prevMode = -1;    //Делаем так, чтобы индикатор обновился, даже если не изменился угол
-}////showEEPROMwrite()
+}////showRXEEPROMwrite()
 
 void showSwitchOff() { //Индикация перехода и переход LEDов в StandBy
   PROCln(F("***showSwitchOff()***"));
@@ -555,7 +664,7 @@ void processCommand() {
     switch (rcvCmd[curIndex]) {
         /*
                //Команды для связи:
-          #define CMD_BRIGHTNESS       100 //параметр = реальная яркость
+          #define CMD_BRIGHTNESS       100 //параметр = номер яркости
           #define CMD_SENSITIVITY      101 //параметр = curSensitivity
           #define CMD_SWITCHSIDES      102 //параметр = revers
           #define CMD_LONGPRESS        103 //параметр = 1
@@ -571,20 +680,23 @@ void processCommand() {
         break;
       case CMD_BRIGHTNESS:
         DEBUGln("===CMD_BRIGHTNESS===");
-        if (fades[curFade] != rcvData[curIndex])
-        showBrightness(rcvData[curIndex]);
+        if (curFade != rcvData[curIndex]) {
+          curFade = rcvData[curIndex];
+          showBrightness();
+        }
         break;
       case CMD_SENSITIVITY:
         DEBUGln("===CMD_SENSITIVITY===");
         if (curSensitivity != rcvData[curIndex]) {
-        curSensitivity = rcvData[curIndex];
-        showSensitivity();
+          curSensitivity = rcvData[curIndex];
+          showSensitivity();
         }
         break;
       case CMD_SWITCHSIDES:
         DEBUGln(F("===CMD_SWITCHSIDES==="));
-        if (revers != rcvData[curIndex])
+        if (revers != rcvData[curIndex]) {
           switchSides();
+        }
         break;
       case CMD_LONGPRESS:
         DEBUGln(F("===CMD_LONGPRESS==="));
@@ -600,7 +712,7 @@ void processCommand() {
         break;
       case CMD_EEPROM_WRITE:
         DEBUGln(F("===CMD_EEPROM_WRITE==="));
-        showEEPROMwrite();
+        processEEPROMwrite();
         break;
     }////switch
     curIndex = (curIndex + 1) % MAX_INDEX;  //Индекс ходит по кругу, догоняя rcvIndex
